@@ -188,6 +188,21 @@ def create_scan_schedule(passive_networks_scans):
                         network.runs_list.append(run+1)
                         network.scan_per_run[run+1] = network.names[index_of_name] + "_" + scan.split("_")[-1]
 
+def _block_name(block):
+    """Get the block's 'Name' parameter, with fallback for mhi-pscad FormCodec failures."""
+    params = block.parameters()
+    if params and 'Name' in params:
+        return params['Name']
+    raw = block._parameters(None, -1, {})
+    if raw:
+        name = raw.get('Name') or raw.get('name')
+        if name:
+            return name
+    raise RuntimeError(
+        f"Cannot get 'Name' for {block!r}. params={params!r}, raw={list((raw or {}).keys())}"
+    )
+
+
 def frequency_sweep(t_snap=None, t_sim=None, t_step=None, sample_step=None, v_perturb_mag=None,freq=None, f_points=None,
                     f_base=None, f_min=None, f_max=None, working_dir=None, multi_freq_scan=False,
                     snapshot_file=None, dedicated_SS_sim=False, take_snapshot=True, dt_injections=None, scan_actives = True,
@@ -275,7 +290,7 @@ def frequency_sweep(t_snap=None, t_sim=None, t_step=None, sample_step=None, v_pe
         blocks = main.find_first("Z_tool:ACscan")  # This assumes a single scan block in the main canvas
         if blocks is None: blocks = main.find_first("Z_tool:DCscanPM")  # If it did not find a ACscan look for PM DCscan
         if blocks is None: blocks = main.find_first("Z_tool:DCscan")
-        scanid = [blocks.parameters()['Name']]  # Retrieve the scan block name for identification
+        scanid = [_block_name(blocks)]  # Retrieve the scan block name for identification
         Ytopology = np.identity(2)
         block_names_Y = [scanid[0]+"-1",scanid[0]+"-2"]
         print("Warning: no topology has been specified, this assumes a single scan block is available |",scanid[0])
@@ -313,8 +328,8 @@ def frequency_sweep(t_snap=None, t_sim=None, t_step=None, sample_step=None, v_pe
         else:
             ScanBlocksAC.append(blocks_tool[0])
 
-    ScanBlocksAC_names = [block.parameters()['Name'] for block in ScanBlocksAC]
-    ScanBlocksDC_names = [block.parameters()['Name'] for block in ScanBlocksDC]
+    ScanBlocksAC_names = [_block_name(block) for block in ScanBlocksAC]
+    ScanBlocksDC_names = [_block_name(block) for block in ScanBlocksDC]
 
     if ScanBlocksAC and ScanBlocksDC:
         scantype = "ACDC"
@@ -413,7 +428,7 @@ def frequency_sweep(t_snap=None, t_sim=None, t_step=None, sample_step=None, v_pe
     if verbose: print("CC for area id: ",cc_new)
 
     # TODO Asign the unique block id based on the names in the topology file, i.e. first block is 1, second is 2, etc
-    ScanBlocks.sort(key=lambda x: x.parameters()['Name'][:-3], reverse=False)  # Sort the blocks by their "bus" number
+    ScanBlocks.sort(key=lambda x: _block_name(x)[:-3], reverse=False)  # Sort the blocks by their "bus" number
     ScanBlocks_id = [i for i in range(1, len(ScanBlocksAC) + len(ScanBlocksDC) + 1)]  # Unique scan block_id signals
     # Create a list with the active scan block objects containing rich information about each block
     ScanBlocksTool = []
@@ -421,7 +436,7 @@ def frequency_sweep(t_snap=None, t_sim=None, t_step=None, sample_step=None, v_pe
     for idx, block in enumerate(ScanBlocks):
         # Set snapshot parameters and block ID in the scan blocks
         block.parameters(Tdecoupling=t_snap, T_inj=t_snap_internal, selector=0, block_id=ScanBlocks_id[idx])
-        ScanBlocksTool.append(Scanblock(block, block.parameters()['Name'], int(block.parameters()['block_id'])))
+        ScanBlocksTool.append(Scanblock(block, _block_name(block), int(block.parameters()['block_id'])))
         # if verbose: print(" Scan block type ",block.defn_name[1])
         for area_id, blocks in enumerate(cc_new):
             if ScanBlocksTool[-1].name in [block_names_Y[num][:-2] for num in blocks] and ScanBlocksTool[-1].type == "AC":
@@ -465,7 +480,7 @@ def frequency_sweep(t_snap=None, t_sim=None, t_step=None, sample_step=None, v_pe
         scan_vars = ['blockid','VDUTac','IDUTacA1','IDUTacA2','VDUTdc','IDUTdcA1','IDUTdcA2','theta']  # Target outputs
         all_pgb = project.find_all("master:pgb")  # Find all output channels in the project
         for pgb in all_pgb:
-            if not (pgb.parameters()['Name'] in scan_vars):  pgb.disable()  # Disable the non-selected outputs
+            if not (_block_name(pgb) in scan_vars):  pgb.disable()  # Disable the non-selected outputs
         all_multimeters = project.find_all("master:multimeter")  # Find all multimeters in the project
         for multimeter in all_multimeters: multimeter.parameters(Dis=0)  # Animated display is disabled (0)
 
@@ -1091,7 +1106,7 @@ def frequency_sweep_TF(t_snap=None, t_sim=None, t_step=None, sample_step=None, v
     for idx, block in enumerate(blocks):
         # Set snapshot parameters and block ID in the scan blocks
         block.parameters(Tdecoupling=t_snap, T_inj=t_snap_internal, selector=0, block_id=ScanBlocks_id[idx])
-        ScanBlocksTool.append(Scanblock(block, block.parameters()['Name'], int(block.parameters()['block_id'])))
+        ScanBlocksTool.append(Scanblock(block, _block_name(block), int(block.parameters()['block_id'])))
         ScanBlocksTool[idx].perturbation_data = {i: {} for i in range(f_points)}  # Dict of dicts
         ScanBlocksTool_names.append(ScanBlocksTool[idx].name)
         print("TF scan block",ScanBlocksTool[idx].name,'with block_id',int(block.parameters()['block_id']))
@@ -1106,7 +1121,7 @@ def frequency_sweep_TF(t_snap=None, t_sim=None, t_step=None, sample_step=None, v
     if not pscad_plot:
         all_pgb = project.find_all("master:pgb")  # Find all output channels in the project
         for pgb in all_pgb:
-            if not (pgb.parameters()['Name'] in ['blockid','inputTF', 'outputTF']):  pgb.disable()  # Disable the non-selected outputs
+            if not (_block_name(pgb) in ['blockid','inputTF', 'outputTF']):  pgb.disable()  # Disable the non-selected outputs
         all_multimeters = project.find_all("master:multimeter")  # Find all multimeters in the project
         for multimeter in all_multimeters: multimeter.parameters(Dis=0)  # Animated display is disabled (0)
 
