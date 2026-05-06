@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+*.pswx.bak
+*.snp
+*.out
+Results/
+Scan_options/
