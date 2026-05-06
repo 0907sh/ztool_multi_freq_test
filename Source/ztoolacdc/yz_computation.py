@@ -17,7 +17,7 @@ Copyright (C) 2024  Francisco Javier Cifuentes Garcia
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 
-__all__ = ['admittance','admittance_multi_freq','admittance_generic','SISO_TF']
+__all__ = ['admittance','admittance_multi_freq','admittance_multi_freq_active','admittance_generic','SISO_TF']
 
 import matplotlib.pyplot as plt
 import numpy as np  # Numerical python functions
@@ -456,6 +456,77 @@ def admittance(f_base=None, frequencies=None, fft_periods=1, scantype="AC", side
             ax[1].set_xlabel('Frequency [Hz]')
             fig.savefig(results_folder+'\\'+filename + ".pdf", format="pdf", bbox_inches="tight")
             plt.close(fig)
+
+def admittance_multi_freq_active(f_base=None, freq_multi=None, fft_periods=1, sides=None, dt=None,
+                                  start_idx=None, zblock=None, results_folder=None, results_name='Y'):
+    # Multi-sine admittance computation for AC active scan (single bus, _d/_q perturbation naming)
+    # freq_multi shape: (N_files, f_points_per_file) e.g. (8, 50)
+    L = int(fft_periods * 1 / f_base * 1.0 / dt)
+
+    frequencies_flat = freq_multi.reshape(np.prod(freq_multi.shape))  # (N_files * f_points_per_file,)
+    n_freq = len(frequencies_flat)
+
+    deltaV = np.zeros((n_freq, 2, 2), dtype='cdouble')
+    deltaI = np.zeros((n_freq, 2, 2), dtype='cdouble')
+
+    names = ['VDUTac:1', 'VDUTac:2', 'IDUTacA' + sides + ':1', 'IDUTacA' + sides + ':2']
+    row_map = {names[0]: 0, names[1]: 1, names[2]: 0, names[3]: 1}
+
+    for sim in range(freq_multi.shape[1]):          # 0 .. f_points_per_file-1
+        for col, sim_type in enumerate(["_d", "_q"]):
+            for name in names:
+                delta = zblock.perturbation_data[sim][name + sim_type][start_idx:] - zblock.snapshot_data[name][start_idx:]
+                delta_FD = np.fft.rfft(delta, n=L, axis=0) * 2 / L
+
+                for freq_file in range(freq_multi.shape[0]):   # 0 .. N_files-1
+                    freq = freq_multi[freq_file, sim]
+                    if freq == 0:
+                        continue
+                    fft_idx = int(round(freq * fft_periods * 1 / f_base))
+                    freq_idx = sim + freq_file * freq_multi.shape[1]
+                    r = row_map[name]
+                    if "V" in name:
+                        deltaV[freq_idx, r, col] = delta_FD[fft_idx]
+                    else:
+                        deltaI[freq_idx, r, col] = delta_FD[fft_idx]
+
+    # Remove zero-padded entries
+    valid = frequencies_flat != 0
+    frequencies = frequencies_flat[valid]
+    Y = np.empty((len(frequencies), 2, 2), dtype='cdouble')
+    dV = deltaV[valid]
+    dI = deltaI[valid]
+    for i in range(len(frequencies)):
+        Y[i] = np.matmul(dI[i], np.linalg.inv(dV[i]))
+
+    if results_folder is not None:
+        filename = results_name + '#Y_AC#' + zblock.name + "-" + sides
+        np.savetxt(results_folder + '\\' + filename + '#.txt',
+                   np.stack((frequencies, Y[:, 0, 0], Y[:, 0, 1], Y[:, 1, 0], Y[:, 1, 1]), axis=1),
+                   delimiter='\t',
+                   header="f\t" + zblock.name + "-" + sides + "_d\t" + zblock.name + "-" + sides + "_q",
+                   comments='')
+        fig, ax = plt.subplots(nrows=2, ncols=1, figsize=(8, 6))
+        ax[0].scatter(frequencies, 20 * np.log10(np.abs(Y[:, 0, 0])), marker='o', facecolors='none', edgecolors='b', linewidths=1.5, label=r'$Y_{dd}$')
+        ax[0].scatter(frequencies, 20 * np.log10(np.abs(Y[:, 0, 1])), marker='x', c='r', linewidths=1.5, label=r'$Y_{dq}$')
+        ax[0].scatter(frequencies, 20 * np.log10(np.abs(Y[:, 1, 0])), marker='+', c='m', linewidths=1.5, label=r'$Y_{qd}$')
+        ax[0].scatter(frequencies, 20 * np.log10(np.abs(Y[:, 1, 1])), marker='.', c='g', linewidths=1.5, label=r'$Y_{qq}$')
+        ax[0].set_xscale("log"); ax[0].set_xlim([frequencies[0], frequencies[-1]]); ax[0].minorticks_on()
+        ax[0].grid(visible=True, which='major', color='k', linestyle='-', linewidth=0.5)
+        ax[0].grid(visible=True, which='minor', color='tab:gray', alpha=0.5, linestyle='-', linewidth=0.5)
+        ax[0].set_ylabel('Magnitude [dB]'); ax[0].set_title('DUT admittance (multi-freq) ― ' + str(len(frequencies)) + ' frequencies'); ax[0].legend(loc='upper right', ncol=2)
+        ax[1].scatter(frequencies, np.angle(Y[:, 0, 0], deg=True), marker='o', facecolors='none', edgecolors='b', linewidths=1.5, label=r'$Y_{dd}$')
+        ax[1].scatter(frequencies, np.angle(Y[:, 0, 1], deg=True), marker='x', c='r', linewidths=1.5, label=r'$Y_{dq}$')
+        ax[1].scatter(frequencies, np.angle(Y[:, 1, 0], deg=True), marker='+', c='m', linewidths=1.5, label=r'$Y_{qd}$')
+        ax[1].scatter(frequencies, np.angle(Y[:, 1, 1], deg=True), marker='.', c='g', linewidths=1.5, label=r'$Y_{qq}$')
+        ax[1].set_xscale("log"); ax[1].set_ylim([-200, 200]); ax[1].set_yticks([-180, -90, 0, 90, 180])
+        ax[1].set_xlim([frequencies[0], frequencies[-1]]); ax[1].minorticks_on()
+        ax[1].grid(visible=True, which='major', color='k', linestyle='-', linewidth=0.5)
+        ax[1].grid(visible=True, which='minor', color='tab:gray', alpha=0.5, linestyle='-', linewidth=0.5)
+        ax[1].set_ylabel('Phase [°]'); ax[1].set_xlabel('Frequency [Hz]'); ax[1].legend(loc='upper right', fancybox=True, shadow=True, ncol=2)
+        fig.savefig(results_folder + '\\' + filename + ".pdf", format="pdf", bbox_inches="tight")
+        plt.close(fig)
+
 
 def admittance_multi_freq(f_base=None, freq_multi=None, fft_periods=1, sides=None, dt=None, exploit_dq_sym=False,
                           start_idx=None, zblocks=None, results_folder=None, results_name='Y', network=None):

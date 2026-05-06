@@ -661,12 +661,14 @@ def frequency_sweep(t_snap=None, t_sim=None, t_step=None, sample_step=None, v_pe
         idx_selected_blocks = []
         for idx, block in enumerate(ScanBlocksTool):
             if block.type == "AC":
-                block.pscad_block.parameters(V_perturb_mag=v_perturb_mag,selector=1)  # d-axis injection
+                block.pscad_block.parameters(V_perturb_mag=v_perturb_mag, selector=1,
+                                             single_frequency=0 if multi_freq_scan else 1)  # d-axis injection
                 idx_selected_blocks.append(idx)
             else:
-                block.pscad_block.parameters(V_perturb_mag=v_perturb_mag,selector=0)  # No injection
+                block.pscad_block.parameters(V_perturb_mag=v_perturb_mag, selector=0)  # No injection
 
-        simset_task.parameters(volley=num_parallel_sim, affinity=1, ammunition=f_points)
+        simset_task.parameters(volley=num_parallel_sim, affinity=1,
+                                ammunition=f_points_per_file if multi_freq_scan else f_points)
         simset_task.overrides(duration=t_sim_internal, time_step=t_step, plot_step=sample_step, start_method=1,
                               timed_snapshots=0, startup_inputfile=snapshot_file + '.snp',
                               save_channels_file=output_files + '_d.out', save_channels=1)
@@ -676,7 +678,8 @@ def frequency_sweep(t_snap=None, t_sim=None, t_step=None, sample_step=None, v_pe
         if save_td or compute_yz:
             wait4pscad(time=1, pscad=pscad)
             t2 = t.time()
-            read_and_save.multiple_s(n_sim=f_points, out_folder=out_dir, save_folder=results_folder, save=save_td,
+            read_and_save.multiple_s(n_sim=f_points_per_file if multi_freq_scan else f_points,
+                                     out_folder=out_dir, save_folder=results_folder, save=save_td,
                                      tar_files=all_files_to_open, zblocks=[ScanBlocksTool[ind] for ind in idx_selected_blocks],
                                      file_name=simset_task.overrides()['save_channels_file'][:-4])
             print(' d-axis injection results collected in', round((t.time() - t2), 2), 'seconds\n')
@@ -687,23 +690,26 @@ def frequency_sweep(t_snap=None, t_sim=None, t_step=None, sample_step=None, v_pe
             t1 = t.time()
             for block in ScanBlocksTool:
                 if block.type == "AC":
-                    block.pscad_block.parameters(V_perturb_mag=v_perturb_mag,selector=2)  # q-axis injection
+                    block.pscad_block.parameters(V_perturb_mag=v_perturb_mag, selector=2,
+                                                 single_frequency=0 if multi_freq_scan else 1)  # q-axis injection
                 else:
-                    block.pscad_block.parameters(V_perturb_mag=v_perturb_mag,selector=0)  # No injection
-            
-            simset_task.parameters(volley=num_parallel_sim, affinity=1, ammunition=f_points)
+                    block.pscad_block.parameters(V_perturb_mag=v_perturb_mag, selector=0)  # No injection
+
+            simset_task.parameters(volley=num_parallel_sim, affinity=1,
+                                    ammunition=f_points_per_file if multi_freq_scan else f_points)
             simset_task.overrides(duration=t_sim_internal, time_step=t_step, plot_step=sample_step, start_method=1,
                                 timed_snapshots=0, startup_inputfile=snapshot_file + '.snp',
                                 save_channels_file=output_files + '_q.out', save_channels=1)
-            
+
             if run_sim: simset.run()
             print(' q-axis injection finished in', round((t.time() - t1), 2), 'seconds')
             if save_td or compute_yz:
                 wait4pscad(time=1, pscad=pscad)
                 t2 = t.time()
-                read_and_save.multiple_s(n_sim=f_points, out_folder=out_dir, save_folder=results_folder, save=save_td,
-                                        tar_files=all_files_to_open, zblocks=[ScanBlocksTool[ind] for ind in idx_selected_blocks],
-                                        file_name=simset_task.overrides()['save_channels_file'][:-4])
+                read_and_save.multiple_s(n_sim=f_points_per_file if multi_freq_scan else f_points,
+                                         out_folder=out_dir, save_folder=results_folder, save=save_td,
+                                         tar_files=all_files_to_open, zblocks=[ScanBlocksTool[ind] for ind in idx_selected_blocks],
+                                         file_name=simset_task.overrides()['save_channels_file'][:-4])
                 print(' q-axis injection results collected in', round((t.time() - t2), 2), 'seconds\n')
 
     elif scantype == "DC" and scan_actives:
@@ -858,10 +864,16 @@ def frequency_sweep(t_snap=None, t_sim=None, t_step=None, sample_step=None, v_pe
                     # Both are AC or DC scan blocks: shunt components (one-side scan)
                     if block0.name == block1.name:
                         t1 = t.time()
-                        yz_computation.admittance(f_base=f_base, frequencies=freq, fft_periods=fft_periods, dt=dt,
-                                                  start_idx=start_idx, exploit_dq_sym=edge_dq_sym,
-                                                  zblocks=block0, sides=name[-1], scantype=block0.type,
-                                                  results_folder=results_folder, results_name=output_files)
+                        if multi_freq_scan and block0.type == "AC":
+                            yz_computation.admittance_multi_freq_active(
+                                f_base=f_base, freq_multi=freq_multi, fft_periods=fft_periods, dt=dt,
+                                start_idx=start_idx, zblock=block0, sides=name[-1],
+                                results_folder=results_folder, results_name=output_files)
+                        else:
+                            yz_computation.admittance(f_base=f_base, frequencies=freq, fft_periods=fft_periods, dt=dt,
+                                                      start_idx=start_idx, exploit_dq_sym=edge_dq_sym,
+                                                      zblocks=block0, sides=name[-1], scantype=block0.type,
+                                                      results_folder=results_folder, results_name=output_files)
                         # Update the scan matrix to indicate that no scan from and to these two ports is pending
                         Ytopology_scan[nz, idx] = 0
                         Ytopology_scan[idx, nz] = 0
