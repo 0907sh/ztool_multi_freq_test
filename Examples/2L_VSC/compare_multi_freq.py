@@ -11,11 +11,18 @@ Compare single-frequency vs multi-frequency scan: time and admittance accuracy
 import os
 import time
 import numpy as np
-import ztoolacdc     as ztool_orig   # 원본 (single_freq 기준)
-import ztoolacdc_mf  as ztool_mf     # 수정본 (multi_freq 실험)
+import ztoolacdc.frequency_sweep  as orig_frequency_sweep
+import ztoolacdc.create_freq      as orig_create_freq
+import ztoolacdc.read_admittance  as orig_read_admittance
+import ztoolacdc.stability        as orig_stability
 
-print("original:", ztool_orig.__file__)
-print("multi:   ", ztool_mf.__file__)
+import ztoolacdc_mf.frequency_sweep as mf_frequency_sweep
+import ztoolacdc_mf.read_admittance as mf_read_admittance
+import ztoolacdc_mf.stability       as mf_stability
+
+import ztoolacdc, ztoolacdc_mf
+print("original:", ztoolacdc.__file__)
+print("multi:   ", ztoolacdc_mf.__file__)
 
 script_dir     = os.path.dirname(os.path.abspath(__file__))
 pscad_folder   = script_dir + '\\'
@@ -35,7 +42,7 @@ t_sim         = start_fft + fft_periods / f_base
 t_step        = 20.0
 v_perturb_mag = 0.02
 
-freq = ztool_orig.create_freq.loglist(f_min=f_min, f_max=f_max, f_points=f_points, f_base=f_base)
+freq = orig_create_freq.loglist(f_min=f_min, f_max=f_max, f_points=f_points, f_base=f_base)
 
 common = dict(
     t_snap=t_snap, t_sim=t_sim, t_step=t_step, dt_injections=dt_injections,
@@ -47,20 +54,20 @@ common = dict(
 
 # ── Run 1: 원본 라이브러리, single_freq ──────────────────────────────────────
 t0 = time.time()
-ztool_orig.frequency_sweep.frequency_sweep(**common, output_files='single_freq', multi_freq_scan=False)
+orig_frequency_sweep.frequency_sweep(**common, output_files='single_freq', multi_freq_scan=False)
 t_single = time.time() - t0
 print(f"\n[single_freq] elapsed: {t_single:.1f} s")
 
 # ── Run 2: 수정본 라이브러리, multi_freq ─────────────────────────────────────
 t0 = time.time()
-ztool_mf.frequency_sweep.frequency_sweep(**common, output_files='multi_freq', multi_freq_scan=True)
+mf_frequency_sweep.frequency_sweep(**common, output_files='multi_freq', multi_freq_scan=True)
 t_multi = time.time() - t0
 print(f"[multi_freq]  elapsed: {t_multi:.1f} s")
 print(f"speedup: {t_single / t_multi:.2f}x\n")
 
 # ── 어드미턴스 비교 ────────────────────────────────────────────────────────────
-Y_single = ztool_orig.read_admittance.read_admittance(path=results_folder, involved_blocks=["PCC-1"], file_root='single_freq')
-Y_multi  = ztool_mf.read_admittance.read_admittance(path=results_folder,  involved_blocks=["PCC-1"], file_root='multi_freq')
+Y_single = orig_read_admittance.read_admittance(path=results_folder, involved_blocks=["PCC-1"], file_root='single_freq')
+Y_multi  = mf_read_admittance.read_admittance(path=results_folder,  involved_blocks=["PCC-1"], file_root='multi_freq')
 
 err_rel = np.abs(Y_multi.y - Y_single.y) / (np.abs(Y_single.y) + 1e-12)
 
@@ -71,15 +78,15 @@ for i, j, label in [(0,0,'Ydd'), (0,1,'Ydq'), (1,0,'Yqd'), (1,1,'Yqq')]:
           f"(max at {Y_single.f[e.argmax()]:.1f} Hz)")
 
 # ── 안정도 판별 비교 ──────────────────────────────────────────────────────────
-Y_grid_s = ztool_orig.read_admittance.read_admittance(path=results_folder, involved_blocks=["PCC-2"], file_root='single_freq')
-Y_grid_m = ztool_mf.read_admittance.read_admittance(path=results_folder,  involved_blocks=["PCC-2"], file_root='multi_freq')
+Y_grid_s = orig_read_admittance.read_admittance(path=results_folder, involved_blocks=["PCC-2"], file_root='single_freq')
+Y_grid_m = mf_read_admittance.read_admittance(path=results_folder,  involved_blocks=["PCC-2"], file_root='multi_freq')
 
 L_single = np.matmul(np.linalg.inv(Y_grid_s.y), Y_single.y)
 L_multi  = np.matmul(np.linalg.inv(Y_grid_m.y), Y_multi.y)
 
 print("\n=== 안정도 판별 (GNC) ===")
-stable_s = ztool_orig.stability.nyquist(L_single, Y_single.f, results_folder=results_folder, filename="gnc_single")
-stable_m = ztool_mf.stability.nyquist(L_multi,   Y_multi.f,  results_folder=results_folder, filename="gnc_multi")
+stable_s = orig_stability.nyquist(L_single, Y_single.f, results_folder=results_folder, filename="gnc_single")
+stable_m = mf_stability.nyquist(L_multi,   Y_multi.f,  results_folder=results_folder, filename="gnc_multi")
 print(f"  single_freq: {'stable' if stable_s else 'UNSTABLE'}")
 print(f"  multi_freq:  {'stable' if stable_m else 'UNSTABLE'}")
 print(f"  판별 일치: {stable_s == stable_m}")
