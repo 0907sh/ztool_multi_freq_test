@@ -3,9 +3,9 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name='ztoolacdc'
-version='0.1.20'
-description='Frequency domain analysis toolbox for EMT models'
+name='ztoolacdc_mf'
+version='0.1.0'
+description='ztoolacdc fork with multi_freq_scan support for AC active scan'
 license = {text = "GNU GPL v3"}
 readme = "README.md"
 requires-python = ">=3.7"
@@ -34,4 +34,4 @@ where = ["Source"]
 include-package-data = true
 
 [tool.setuptools.package-data]
-"ztoolacdc" = ["Scan/**/*", "Scan/**/.*"]
+"ztoolacdc_mf" = ["Scan/**/*", "Scan/**/.*"]
