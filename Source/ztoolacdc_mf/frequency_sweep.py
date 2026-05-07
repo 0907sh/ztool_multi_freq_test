@@ -854,17 +854,17 @@ def frequency_sweep(t_snap=None, t_sim=None, t_step=None, sample_step=None, v_pe
                     if block.name == name[:-2]:
                         block_type0 = block.type  # The current block
                         block0 = block
-                    if block.name == block_names_Y[int(nz)][:-2]:
+                    if block.name == block_names_Y[int(nz[0])][:-2]:
                         block_type1 = block.type  # The other scan block
                         block1 = block
                 if block_type0 != block_type1:
                     # If one block is AC and the other DC: AC/DC converter
                     t1 = t.time()
                     if block0.type == "DC":
-                        sides = [name[-1], block_names_Y[int(nz)][-1]]
+                        sides = [name[-1], block_names_Y[int(nz[0])][-1]]
                         zblocks_pair = [block0,block1]  # DC block and AC block
                     else:
-                        sides = [block_names_Y[int(nz)][-1], name[-1]]
+                        sides = [block_names_Y[int(nz[0])][-1], name[-1]]
                         zblocks_pair = [block1,block0]  # DC block and AC block
 
                     yz_computation.admittance(f_base=f_base, frequencies=freq, fft_periods=fft_periods,dt=dt,
